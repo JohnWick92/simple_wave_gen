@@ -184,8 +184,6 @@ class SineGenerator : public ISignalGenerator {
     }
   }
 
-  bool isActive() const override { return m_running; }
-
   // Public getters (usados pelo controller)
   double getFrequency() const { return m_frequency; }
   double getAmplitude() const { return m_amplitude; }

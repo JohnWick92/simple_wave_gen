@@ -18,8 +18,6 @@ class ISignalGenerator {
   // Define um parâmetro nomeado (ex.: "frequency", "amplitude", "filename").
   virtual void setParameter(const std::string& name, double value) = 0;
 
-  virtual bool isActive() const = 0;
-
   virtual void start() = 0;
   virtual void stop() = 0;
 
