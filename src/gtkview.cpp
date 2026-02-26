@@ -8,7 +8,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <deque>
+#include <thread>
 
 #include "../include/Communication.hpp"
 
@@ -115,5 +117,73 @@ class WaveformCanvas : public Gtk::DrawingArea {
       cr->line_to(x2, y2);
       cr->stroke();
     }
+  }
+};
+
+// Janela principal da aplicação
+class ViewerWindow : public Gtk::Window {
+ public:
+  ViewerWindow(SharedBuffer* buffer) : m_ctx{buffer, {}, true} {
+    set_title("Visualizador de Onda Senoidal");
+    set_default_size(WINDOW_WIDTH, WINDOW_HEIGHT);
+    set_child(m_canvas);
+
+    // Inicia thread que lê dados da memória compartilhada
+    m_readerThread = std::thread(&ViewerWindow::readerThreadFunc, this);
+
+    // Configura timer para atualizar a UI periodicamente
+    Glib::signal_timeout().connect(
+        sigc::mem_fun(*this, &ViewerWindow::updateWaveform),
+        UI_UPDATE_INTERVAL_MS);
+  }
+
+  ~ViewerWindow() {
+    m_ctx.running = false;  // Sinaliza para thread de leitura parar
+    if (m_readerThread.joinable()) m_readerThread.join();
+  }
+
+ private:
+  ViewerContext m_ctx;         // Contexto compartilhado com a thread
+  WaveformCanvas m_canvas;     // Área de desenho da onda
+  std::thread m_readerThread;  // Thread para leitura de dados
+
+  // Executa em thread separada: lê novos dados da memória compartilhada
+  void readerThreadFunc() {
+    int lastWritePos = -1;
+
+    while (m_ctx.running) {
+      int currentWrite = m_ctx.shmBuffer->writePos;
+
+      // Verifica se há novos dados disponíveis
+      if (lastWritePos != currentWrite && m_ctx.shmBuffer->newDataAvailable) {
+        int readPos = m_ctx.shmBuffer->readPos;
+
+        // Lê todas as amostras novas do buffer circular
+        while (readPos != currentWrite) {
+          double sample = m_ctx.shmBuffer->samples[readPos];
+          readPos = (readPos + 1) % BUFFER_SIZE;
+
+          // Adiciona ao histórico e mantém tamanho máximo
+          m_ctx.sampleHistory.push_back(sample);
+          if (m_ctx.sampleHistory.size() > MAX_DISPLAY_POINTS) {
+            m_ctx.sampleHistory.pop_front();
+          }
+        }
+
+        // Atualiza posição de leitura e limpa flag de novo dado
+        m_ctx.shmBuffer->readPos = readPos;
+        m_ctx.shmBuffer->newDataAvailable = false;
+        lastWritePos = currentWrite;
+      }
+
+      // Pequena pausa para evitar uso excessivo de CPU
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  }
+
+  // Chamado pelo timer da UI: atualiza o canvas com novas amostras
+  bool updateWaveform() {
+    m_canvas.updateSamples(m_ctx.sampleHistory);
+    return true;  // Mantém o timer ativo
   }
 };
