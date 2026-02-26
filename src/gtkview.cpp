@@ -26,3 +26,94 @@ struct ViewerContext {
   std::deque<double> sampleHistory;  // Histórico de amostras para exibição
   bool running;                      // Flag de controle da thread de leitura
 };
+
+// Área de desenho customizada que renderiza a forma de onda
+class WaveformCanvas : public Gtk::DrawingArea {
+ public:
+  WaveformCanvas() {
+    set_content_width(WINDOW_WIDTH);
+    set_content_height(WINDOW_HEIGHT);
+    set_draw_func(sigc::mem_fun(*this, &WaveformCanvas::onDraw));
+  }
+
+  // Chamado pela UI thread quando novas amostras estão disponíveis
+  void updateSamples(const std::deque<double>& samples) {
+    m_samples = samples;
+    queue_draw();  // Solicita redesenho do canvas
+  }
+
+ private:
+  std::deque<double> m_samples;  // Cópia local das amostras para renderização
+
+  // Função de desenho chamada pelo GTK quando o canvas precisa ser renderizado
+  void onDraw(const Cairo::RefPtr<Cairo::Context>& cr, int width, int height) {
+    // Fundo preto
+    cr->set_source_rgb(0, 0, 0);
+    cr->paint();
+
+    // Se não há dados, exibe mensagem de espera
+    if (m_samples.size() < 2) {
+      cr->set_source_rgb(0, 1, 0);
+      auto layout = create_pango_layout("Aguardando sinal...");
+      layout->set_font_description(Pango::FontDescription("Monospace 12"));
+      int tw, th;
+      layout->get_pixel_size(tw, th);
+      cr->move_to(static_cast<double>(width - tw) / 2,
+                  static_cast<double>(height - th) / 2);
+      layout->show_in_cairo_context(cr);
+      return;
+    }
+
+    // Desenha grade de referência (linhas horizontais e verticais)
+    cr->set_source_rgba(0, 0.5, 0, 0.2);  // Verde transparente
+    cr->set_line_width(0.5);
+
+    // Linha central (zero)
+    int centerY = height / 2;
+    cr->move_to(20, centerY);
+    cr->line_to(width - 20, centerY);
+    cr->stroke();
+
+    // Linhas horizontais de referência (amplitudes ±1/3 e ±2/3)
+    for (int i = -2; i <= 2; i += 2) {
+      double y = centerY + i * (static_cast<double>(height) / 6);
+      cr->move_to(20, y);
+      cr->line_to(width - 20, y);
+      cr->stroke();
+    }
+
+    // Linhas verticais de referência (divisões de tempo)
+    for (int i = 0; i <= 4; i++) {
+      double x = 20 + i * static_cast<double>(width - 40) / 4;
+      cr->move_to(x, 20);
+      cr->line_to(x, height - 20);
+      cr->stroke();
+    }
+
+    // Desenha a forma de onda
+    cr->set_source_rgb(0, 1, 0);  // Verde brilhante
+    cr->set_line_width(2);
+
+    size_t n = m_samples.size();
+    double stepX =
+        (double)(width - 40) / (n - 1);  // Espaçamento horizontal entre pontos
+    double verticalScale =
+        (height - 60) / 2.0;  // Escala vertical (reserva margem de 30px)
+
+    // Conecta os pontos com linhas
+    for (size_t i = 0; i < n - 1; ++i) {
+      double x1 = 20 + i * stepX;
+      double y1 = centerY - m_samples[i] * verticalScale;
+      double x2 = 20 + (i + 1) * stepX;
+      double y2 = centerY - m_samples[i + 1] * verticalScale;
+
+      // Garante que as linhas não ultrapassem as margens
+      y1 = std::clamp(y1, 20.0, (double)(height - 20));
+      y2 = std::clamp(y2, 20.0, (double)(height - 20));
+
+      cr->move_to(x1, y1);
+      cr->line_to(x2, y2);
+      cr->stroke();
+    }
+  }
+};
