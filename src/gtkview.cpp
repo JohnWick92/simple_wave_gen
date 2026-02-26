@@ -4,12 +4,14 @@
 #include <fcntl.h>
 #include <glibmm.h>
 #include <gtkmm.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include <chrono>
 #include <deque>
+#include <iostream>
 #include <thread>
 
 #include "../include/Communication.hpp"
@@ -187,3 +189,47 @@ class ViewerWindow : public Gtk::Window {
     return true;  // Mantém o timer ativo
   }
 };
+
+// Ponteiro global para a aplicação GTK
+Glib::RefPtr<Gtk::Application> g_app;
+
+// Handler de sinal que fecha o GTK main loop
+void signalHandler(int) {
+  std::cout << "\nEncerrando visualizador..." << std::endl;
+  if (g_app) {
+    g_app->quit();
+  }
+}
+
+int main(int argc, char* argv[]) {
+  signal(SIGINT, signalHandler);
+
+  std::cout << "Visualizador de Onda Senoidal - PID: " << getpid() << std::endl;
+  std::cout << "Conectando à memória compartilhada..." << std::endl;
+
+  // Abre memória compartilhada criada pelo gerador
+  int shmFd = shm_open(SHARED_MEMORY_NAME, O_RDWR, 0666);
+  if (shmFd < 0) {
+    std::cerr << "ERRO: Gerador não está em execução?" << std::endl;
+    return 1;
+  }
+
+  // Mapeia memória compartilhada no espaço de endereço do processo
+  SharedBuffer* buffer =
+      (SharedBuffer*)mmap(nullptr, sizeof(SharedBuffer), PROT_READ | PROT_WRITE,
+                          MAP_SHARED, shmFd, 0);
+
+  if (buffer == MAP_FAILED) {
+    std::cerr << "ERRO: Falha ao mapear memória compartilhada" << std::endl;
+    close(shmFd);
+    return 1;
+  }
+
+  std::cout << "Conectado. Exibindo forma de onda (Ctrl+C para sair)."
+            << std::endl;
+
+  // Inicia aplicação GTK
+  g_app = Gtk::Application::create("org.sine.viewer");
+  ViewerWindow window(buffer);
+  return g_app->make_window_and_run<ViewerWindow>(argc, argv, buffer);
+}
