@@ -106,22 +106,24 @@ int main() {
 
     if (elapsed.count() >= FRAME_INTERVAL_MS) {
       // Gera amostras apenas se o gerador estiver ativo
-      auto samples = generator.generateSamples(SAMPLES_PER_FRAME);
-      if (!samples.empty()) {
-        for (double sample : samples) {
-          buffer->samples[buffer->writePos] = sample;
-          buffer->writePos = (buffer->writePos + 1) % BUFFER_SIZE;
-          buffer->totalProduced++;
+      if (generator.isRunning()) {
+        auto samples = generator.generateSamples(SAMPLES_PER_FRAME);
+        if (!samples.empty()) {
+          for (double sample : samples) {
+            buffer->samples[buffer->writePos] = sample;
+            buffer->writePos = (buffer->writePos + 1) % BUFFER_SIZE;
+            buffer->totalProduced++;
 
-          // Se buffer cheio, avança readPos (descarta o mais antigo)
-          if (buffer->writePos == buffer->readPos) {
-            buffer->readPos = (buffer->readPos + 1) % BUFFER_SIZE;
+            // Se buffer cheio, avança readPos (descarta o mais antigo)
+            if (buffer->writePos == buffer->readPos) {
+              buffer->readPos = (buffer->readPos + 1) % BUFFER_SIZE;
+            }
           }
+          buffer->newDataAvailable = true;
         }
-        buffer->newDataAvailable = true;
       }
+      lastFrameTime = now;
     }
-    lastFrameTime = now;
   }
 
   // Limpeza
